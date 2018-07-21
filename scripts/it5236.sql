@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Jun 24, 2018 at 05:27 PM
+-- Generation Time: Jul 21, 2018 at 02:02 AM
 -- Server version: 5.6.40
 -- PHP Version: 7.0.30
 
@@ -75,9 +75,6 @@ CREATE TABLE `auditlog` (
   `userid` varchar(32) DEFAULT NULL COMMENT 'CSPRN'
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
-
--- --------------------------------------------------------
-
 --
 -- Table structure for table `comments`
 --
@@ -91,6 +88,28 @@ CREATE TABLE `comments` (
   `commentattachmentid` varchar(32) DEFAULT NULL COMMENT 'CSPRN'
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
+--
+-- Table structure for table `emailvalidation`
+--
+
+CREATE TABLE `emailvalidation` (
+  `emailvalidationid` varchar(32) NOT NULL COMMENT 'CSPRN',
+  `userid` varchar(32) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `emailsent` datetime NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
+--
+-- Table structure for table `passwordreset`
+--
+
+CREATE TABLE `passwordreset` (
+  `passwordresetid` varchar(32) NOT NULL COMMENT 'CSPRN',
+  `userid` varchar(32) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `expires` datetime NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+
 -- --------------------------------------------------------
 
 --
@@ -100,8 +119,6 @@ CREATE TABLE `comments` (
 CREATE TABLE `registrationcodes` (
   `registrationcode` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
-
--- --------------------------------------------------------
 
 --
 -- Table structure for table `things`
@@ -116,7 +133,14 @@ CREATE TABLE `things` (
   `thingregistrationcode` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
--- --------------------------------------------------------
+--
+-- Table structure for table `userregistrations`
+--
+
+CREATE TABLE `userregistrations` (
+  `userid` varchar(32) NOT NULL COMMENT 'CSPRN',
+  `registrationcode` varchar(255) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 
 --
 -- Table structure for table `users`
@@ -126,12 +150,10 @@ CREATE TABLE `users` (
   `userid` varchar(32) NOT NULL COMMENT 'CSPRN',
   `username` varchar(255) NOT NULL,
   `passwordhash` varchar(255) NOT NULL,
-  `registrationcode` varchar(255) NOT NULL,
   `email` varchar(255) NOT NULL,
-  `isadmin` tinyint(1) NOT NULL
+  `isadmin` tinyint(1) NOT NULL,
+  `emailvalidated` bit(1) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
-
--- --------------------------------------------------------
 
 --
 -- Table structure for table `usersessions`
@@ -140,12 +162,9 @@ CREATE TABLE `users` (
 CREATE TABLE `usersessions` (
   `usersessionid` varchar(50) NOT NULL COMMENT 'CSPRN',
   `userid` varchar(32) NOT NULL COMMENT 'CSPRN',
-  `expires` datetime NOT NULL
+  `expires` datetime NOT NULL,
+  `registrationcode` varchar(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
-
---
--- Indexes for dumped tables
---
 
 --
 -- Indexes for table `attachments`
@@ -176,6 +195,21 @@ ALTER TABLE `comments`
   ADD KEY `commenttopicid` (`commentthingid`);
 
 --
+-- Indexes for table `emailvalidation`
+--
+ALTER TABLE `emailvalidation`
+  ADD PRIMARY KEY (`emailvalidationid`),
+  ADD KEY `userid` (`userid`);
+
+--
+-- Indexes for table `passwordreset`
+--
+ALTER TABLE `passwordreset`
+  ADD PRIMARY KEY (`passwordresetid`),
+  ADD KEY `userid` (`userid`),
+  ADD KEY `emailaddress` (`email`);
+
+--
 -- Indexes for table `registrationcodes`
 --
 ALTER TABLE `registrationcodes`
@@ -192,13 +226,19 @@ ALTER TABLE `things`
   ADD KEY `thingattachmentid` (`thingattachmentid`);
 
 --
+-- Indexes for table `userregistrations`
+--
+ALTER TABLE `userregistrations`
+  ADD PRIMARY KEY (`userid`,`registrationcode`),
+  ADD KEY `registrationcode` (`registrationcode`);
+
+--
 -- Indexes for table `users`
 --
 ALTER TABLE `users`
   ADD PRIMARY KEY (`userid`),
   ADD UNIQUE KEY `username` (`username`),
-  ADD UNIQUE KEY `email` (`email`),
-  ADD KEY `registrationcode` (`registrationcode`);
+  ADD UNIQUE KEY `email` (`email`);
 
 --
 -- Indexes for table `usersessions`
@@ -206,27 +246,14 @@ ALTER TABLE `users`
 ALTER TABLE `usersessions`
   ADD PRIMARY KEY (`usersessionid`,`userid`),
   ADD UNIQUE KEY `usersessionid` (`usersessionid`),
-  ADD KEY `userid` (`userid`);
-
---
--- AUTO_INCREMENT for dumped tables
---
+  ADD KEY `userid` (`userid`),
+  ADD KEY `registrationcode` (`registrationcode`);
 
 --
 -- AUTO_INCREMENT for table `auditlog`
 --
 ALTER TABLE `auditlog`
-  MODIFY `auditlogid` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=35;
-
---
--- Constraints for dumped tables
---
-
---
--- Constraints for table `auditlog`
---
-ALTER TABLE `auditlog`
-  ADD CONSTRAINT `auditlog_ibfk_1` FOREIGN KEY (`userid`) REFERENCES `users` (`userid`) ON UPDATE CASCADE;
+  MODIFY `auditlogid` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=92;
 
 --
 -- Constraints for table `comments`
@@ -237,6 +264,13 @@ ALTER TABLE `comments`
   ADD CONSTRAINT `comments_ibfk_3` FOREIGN KEY (`commentthingid`) REFERENCES `things` (`thingid`) ON UPDATE CASCADE;
 
 --
+-- Constraints for table `passwordreset`
+--
+ALTER TABLE `passwordreset`
+  ADD CONSTRAINT `passwordreset_ibfk_1` FOREIGN KEY (`userid`) REFERENCES `users` (`userid`) ON UPDATE CASCADE,
+  ADD CONSTRAINT `passwordreset_ibfk_2` FOREIGN KEY (`email`) REFERENCES `users` (`email`) ON UPDATE CASCADE;
+
+--
 -- Constraints for table `things`
 --
 ALTER TABLE `things`
@@ -245,10 +279,11 @@ ALTER TABLE `things`
   ADD CONSTRAINT `things_ibfk_3` FOREIGN KEY (`thingregistrationcode`) REFERENCES `registrationcodes` (`registrationcode`) ON UPDATE CASCADE;
 
 --
--- Constraints for table `users`
+-- Constraints for table `userregistrations`
 --
-ALTER TABLE `users`
-  ADD CONSTRAINT `users_ibfk_1` FOREIGN KEY (`registrationcode`) REFERENCES `registrationcodes` (`registrationcode`) ON UPDATE CASCADE;
+ALTER TABLE `userregistrations`
+  ADD CONSTRAINT `userregistrations_ibfk_1` FOREIGN KEY (`userid`) REFERENCES `users` (`userid`) ON DELETE CASCADE ON UPDATE CASCADE,
+  ADD CONSTRAINT `userregistrations_ibfk_2` FOREIGN KEY (`registrationcode`) REFERENCES `registrationcodes` (`registrationcode`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
 -- Constraints for table `usersessions`
