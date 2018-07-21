@@ -37,17 +37,24 @@ class Application {
 		return $dbh;
 	}
 	
-	public function auditlog($context, $message){
+	public function auditlog($context, $message, $priority = 0, $userid = NULL){
+
+		// Declare an errors array
+		$errors = [];
 
 		// Connect to the database
 		$dbh = $this->getConnection();
-		
-		$sessionid = $_COOKIE['sessionid'];
-		$errors = [];
-		
-		$user = $this->getSessionUser($sessionid, $errors, TRUE);
-		$userid = $user["userid"];
+
+		// If a user is logged in, get their userid
+		if ($userid == NULL) {
 			
+			$user = $this->getSessionUser($errors, TRUE);
+			if ($user != NULL) {
+				$userid = $user["userid"];
+			}
+
+		}
+
 		$ipaddress = $_SERVER["REMOTE_ADDR"];
 		
 		if (is_array($message)){
@@ -55,7 +62,8 @@ class Application {
 		}
 
 		// Construct a SQL statement to perform the insert operation
-		$sql = "INSERT INTO auditlog (context, message, logdate, ipaddress, userid) VALUES (:context, :message, NOW(), :ipaddress, :userid)";
+		$sql = "INSERT INTO auditlog (context, message, logdate, ipaddress, userid) " .
+			"VALUES (:context, :message, NOW(), :ipaddress, :userid)";
 
 		// Run the SQL select and capture the result code
 		$stmt = $dbh->prepare($sql);
@@ -68,21 +76,43 @@ class Application {
 		
 	}
 	
+	protected function validateUsername($username, &$errors) {
+		if (empty($username)) {
+			$errors[] = "Missing username";
+		} else if (strlen(trim($username)) < 3) {
+			$errors[] = "Username must be at least 3 characters";
+		} else if (strpos($username, "@")) {
+			$errors[] = "Username may not contain an '@' sign";
+		}
+	}
+	
+	protected function validatePassword($password, &$errors) {
+		if (empty($password)) {
+			$errors[] = "Missing password";
+		} else if (strlen(trim($password)) < 8) {
+			$errors[] = "Password must be at least 8 characters";
+		}
+	}
+	
+	protected function validateEmail($email, &$errors) {
+		if (empty($email)) {
+			$errors[] = "Missing email";
+		} else if (substr(strtolower(trim($email)), -20) != "@georgiasouthern.edu" 
+				&& substr(strtolower(trim($email)), -13) != "@thackston.me") {
+			// Verify it's a Georgia Southern email address
+			$errors[] = "Not a Georgia Southern email address";
+		}
+	}
+	
 	// Registers a new user
 	public function register($username, $password, $email, $registrationcode, &$errors) {
 		
 		$this->auditlog("register", "attempt: $username, $email, $registrationcode");
 
 		// Validate the user input
-		if (empty($username)) {
-			$errors[] = "Missing username";
-		}
-		if (empty($password)) {
-			$errors[] = "Missing password";
-		}
-		if (empty($email)) {
-			$errors[] = "Missing email";
-		}
+		$this->validateUsername($username, $errors);
+		$this->validatePassword($password, $errors);
+		$this->validateEmail($email, $errors);
 		if (empty($registrationcode)) {
 			$errors[] = "Missing registration code";
 		}
@@ -95,16 +125,18 @@ class Application {
 
 			// Check the registration codes table for the code provided
 			$goodcode = FALSE;
-			$sql = "SELECT COUNT(*) FROM registrationcodes WHERE LOWER(registrationcode) = LOWER(:code)";
+			$sql = "SELECT COUNT(*) AS codecount FROM registrationcodes WHERE LOWER(registrationcode) = LOWER(:code)";
 			$stmt = $dbh->prepare($sql);
 			$stmt->bindParam(':code', $registrationcode);
 			$result = $stmt->execute();
 			if ($result) {
-				if ($row = $stmt->fetch()) {
-					if ($row[0] == 1) {
+				if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+					if ($row["codecount"] == 1) {
 						$goodcode = TRUE;
 					}
 				}
+			} else {
+				$this->debug($stmt->errorInfo());
 			}
 
 			// If the code is bad, then return error
@@ -112,64 +144,93 @@ class Application {
 				$errors[] = "Bad registration code";
 				$this->auditlog("register", "bad registration code: $registrationcode");
 
-			}
-			
-			// Hash the user's password
-			$passwordhash = password_hash($password, PASSWORD_DEFAULT);
+			} else {
+				
+				// Hash the user's password
+				$passwordhash = password_hash($password, PASSWORD_DEFAULT);
+	
+				// Create a new user ID
+				$userid = bin2hex(random_bytes(16));
+				
+				// Construct a SQL statement to perform the insert operation
+				$sql = "INSERT INTO users (userid, username, passwordhash, email) " .
+					"VALUES (:userid, :username, :passwordhash, :email)";
 
-			// Create a new user ID
-			$userid = bin2hex(random_bytes(16));
-			
-			// Construct a SQL statement to perform the insert operation
-			$sql = "INSERT INTO users (userid, username, passwordhash, email, registrationcode) " .
-				"VALUES (:userid, :username, :passwordhash, :email, :registrationcode)";
-	
-			// Run the SQL insert and capture the result code
-			$stmt = $dbh->prepare($sql);
-			$stmt->bindParam(':userid', $userid);
-			$stmt->bindParam(':username', $username);
-			$stmt->bindParam(':passwordhash', $passwordhash);
-			$stmt->bindParam(':email', $email);
-			$stmt->bindParam(':registrationcode', $registrationcode);
-			$result = $stmt->execute();
-	
-			// If the query did not run successfully, add an error message to the list
-			if ($result === FALSE) {
-				
-				$arr = $stmt->errorInfo();
-				
-				// Check for duplicate userid/username/email
-				if ($arr[1] == 1062) {
-					if (substr($arr[2], -7, 6) == "userid") {
-						$errors[] = "An unexpected registration error occurred. Please try again in a few minutes.";
-						$this->debug($stmt->errorInfo());
-						$this->auditlog("register error", $stmt->errorInfo());
-						
-					} else if (substr($arr[2], -9, 8) == "username") {
-						$errors[] = "That username is not available.";
-						$this->auditlog("register", "duplicate username: $username");												
-					} else if (substr($arr[2], -6, 5) == "email") {
-						$errors[] = "That email has already been registered.";
-						$this->auditlog("register", "duplicate email: $email");						
+				// Run the SQL insert and capture the result code
+				$stmt = $dbh->prepare($sql);
+				$stmt->bindParam(':userid', $userid);
+				$stmt->bindParam(':username', $username);
+				$stmt->bindParam(':passwordhash', $passwordhash);
+				$stmt->bindParam(':email', $email);
+				$result = $stmt->execute();
+		
+				// If the query did not run successfully, add an error message to the list
+				if ($result === FALSE) {
+					
+					$arr = $stmt->errorInfo();
+					$this->debug($stmt->errorInfo());
+					
+					// Check for duplicate userid/username/email
+					if ($arr[1] == 1062) {
+						if (substr($arr[2], -7, 6) == "userid") {
+							$errors[] = "An unexpected registration error occurred. Please try again in a few minutes.";
+							$this->debug($stmt->errorInfo());
+							$this->auditlog("register error", $stmt->errorInfo());
+							
+						} else if (substr($arr[2], -9, 8) == "username") {
+							$errors[] = "That username is not available.";
+							$this->auditlog("register", "duplicate username: $username");												
+						} else if (substr($arr[2], -6, 5) == "email") {
+							$errors[] = "That email has already been registered.";
+							$this->auditlog("register", "duplicate email: $email");
+						} else {
+							$errors[] = "An unexpected error occurred.";
+							$this->debug($stmt->errorInfo());
+							$this->auditlog("register error", $stmt->errorInfo());
+						}
 					} else {
 						$errors[] = "An unexpected error occurred.";
 						$this->debug($stmt->errorInfo());
-						$this->auditlog("register error", $stmt->errorInfo());					
+						$this->auditlog("register error", $stmt->errorInfo());
 					}
 				} else {
-					$errors[] = "An unexpected error occurred.";
-					$this->debug($stmt->errorInfo());
-					$this->auditlog("register error", $stmt->errorInfo());					
-				}
-			} else {
-				$this->auditlog("register", "success: $userid, $username, $email");					
-			}
+					// Construct a SQL statement to perform the insert operation
+					$sql = "INSERT INTO userregistrations (userid, registrationcode) " .
+						"VALUES (:userid, :registrationcode)";
 	
+					// Run the SQL insert and capture the result code
+					$stmt = $dbh->prepare($sql);
+					$stmt->bindParam(':userid', $userid);
+					$stmt->bindParam(':registrationcode', $registrationcode);
+					$result = $stmt->execute();
+			
+					// If the query did not run successfully, add an error message to the list
+					if ($result === FALSE) {
+
+						$arr = $stmt->errorInfo();
+						$this->debug($stmt->errorInfo());
+
+						if ($arr[1] == 1062) {
+							$errors[] = "User already registered for course.";
+							$this->auditlog("register", "duplicate course registration: $userid, $registrationcode");
+						}
+
+					} else {
+						
+						$this->auditlog("register", "success: $userid, $username, $email");
+						$this->sendValidationEmail($userid, $email, $errors);
+
+					}
+
+				}
+
+			}
+
 			// Close the connection
 			$dbh = NULL;
 	
 		} else {
-			$this->auditlog("register validation error", $errors);					
+			$this->auditlog("register validation error", $errors);
 		}
 	
 		// Return TRUE if there are no errors, otherwise return FALSE
@@ -180,8 +241,143 @@ class Application {
 		}
 	}
 
+	// Send an email to validate the address
+	protected function sendValidationEmail($userid, $email, &$errors) {
+		
+		// Connect to the database
+		$dbh = $this->getConnection();
+		
+		$this->auditlog("sendValidationEmail", "Sending message to $email");
+		
+		$validationid = bin2hex(random_bytes(16));	
+
+		// Construct a SQL statement to perform the insert operation
+		$sql = "INSERT INTO emailvalidation (emailvalidationid, userid, email, emailsent) " . 
+			"VALUES (:emailvalidationid, :userid, :email, NOW())";
+
+		// Run the SQL select and capture the result code
+		$stmt = $dbh->prepare($sql);
+		$stmt->bindParam(":emailvalidationid", $validationid);
+		$stmt->bindParam(":userid", $userid);
+		$stmt->bindParam(":email", $email);
+		$result = $stmt->execute();
+		if ($result === FALSE) {
+			$errors[] = "An unexpected error occurred sending the validation email";
+			$this->debug($stmt->errorInfo());
+			$this->auditlog("register error", $stmt->errorInfo());
+		} else {
+			
+			$this->auditlog("sendValidationEmail", "Sending message to $email");	
+	
+			// Send reset email
+			$pageLink = (isset($_SERVER['HTTPS']) ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
+			$pageLink = str_replace("register.php", "login.php", $pageLink);
+			$to      = $email;
+			$subject = 'Confirm your email address';
+			$message = "A request has been made to create an account at https://russellthackston.me for this email address. ".
+				"If you did not make this request, please ignore this message. No other action is necessary. ".
+				"To confirm this address, please click the following link: $pageLink?id=$validationid";
+			$headers = 'From: webmaster@russellthackston.me' . "\r\n" .
+			    'Reply-To: webmaster@russellthackston.me' . "\r\n";
+	
+			mail($to, $subject, $message, $headers);
+			
+			$this->auditlog("sendValidationEmail", "Message sent to $email");
+	
+		}
+
+		// Close the connection
+		$dbh = NULL;
+
+	}
+	
+	// Send an email to validate the address
+	public function processEmailValidation($validationid, &$errors) {
+		
+		$success = FALSE;
+	
+		// Connect to the database
+		$dbh = $this->getConnection();
+		
+		$this->auditlog("processEmailValidation", "Received: $validationid");
+		
+		// Construct a SQL statement to perform the insert operation
+		$sql = "SELECT userid FROM emailvalidation WHERE emailvalidationid = :emailvalidationid";
+
+		// Run the SQL select and capture the result code
+		$stmt = $dbh->prepare($sql);
+		$stmt->bindParam(":emailvalidationid", $validationid);
+		$result = $stmt->execute();
+
+		if ($result === FALSE) {
+
+			$errors[] = "An unexpected error occurred processing your email validation request";
+			$this->debug($stmt->errorInfo());
+			$this->auditlog("processEmailValidation error", $stmt->errorInfo());
+
+		} else {
+
+			if ($stmt->rowCount() != 1) {
+				
+				$errors[] = "That does not appear to be a valid request";
+				$this->debug($stmt->errorInfo());
+				$this->auditlog("processEmailValidation", "Invalid request: $validationid");
+
+			
+			} else {
+				
+				$userid = $stmt->fetch(PDO::FETCH_ASSOC)['userid'];
+
+				// Construct a SQL statement to perform the insert operation
+				$sql = "DELETE FROM emailvalidation WHERE emailvalidationid = :emailvalidationid";
+
+				// Run the SQL select and capture the result code
+				$stmt = $dbh->prepare($sql);
+				$stmt->bindParam(":emailvalidationid", $validationid);
+				$result = $stmt->execute();
+		
+				if ($result === FALSE) {
+		
+					$errors[] = "An unexpected error occurred processing your email validation request";
+					$this->debug($stmt->errorInfo());
+					$this->auditlog("processEmailValidation error", $stmt->errorInfo());
+		
+				} else if ($stmt->rowCount() == 1) {
+					
+					$this->auditlog("processEmailValidation", "Email address validated: $validationid");
+					
+					// Construct a SQL statement to perform the insert operation
+					$sql = "UPDATE users SET emailvalidated = 1 WHERE userid = :userid";
+			
+					// Run the SQL select and capture the result code
+					$stmt = $dbh->prepare($sql);
+					$stmt->bindParam(":userid", $userid);
+					$result = $stmt->execute();
+					
+					$success = TRUE;
+			
+				} else {
+					
+					$errors[] = "That does not appear to be a valid request";
+					$this->debug($stmt->errorInfo());
+					$this->auditlog("processEmailValidation", "Invalid request: $validationid");
+					
+				}
+	
+			}
+			
+		}
+
+
+		// Close the connection
+		$dbh = NULL;
+		
+		return $success;
+
+	}
+
 	// Creates a new session in the database for the specified user
-	public function newSession($userid, &$errors) {
+	public function newSession($userid, &$errors, $registrationcode = NULL) {
 		
 		// Check for a valid userid
 		if (empty($userid)) {
@@ -191,6 +387,13 @@ class Application {
 
 		// Only try to query the data into the database if there are no validation errors
 		if (sizeof($errors) == 0) {
+
+			if ($registrationcode == NULL) {
+				$regs = $this->getUserRegistrations($userid, $errors);
+				$reg = $regs[0];
+				$this->auditlog("session", "logging in user with first reg code $reg");
+				$registrationcode = $regs[0];
+			}
 			
 			// Create a new session ID
 			$sessionid = bin2hex(random_bytes(25));
@@ -199,12 +402,14 @@ class Application {
 			$dbh = $this->getConnection();
 		
 			// Construct a SQL statement to perform the insert operation
-			$sql = "INSERT INTO usersessions (usersessionid, userid, expires) VALUES (:sessionid, :userid, DATE_ADD(NOW(), INTERVAL 7 DAY))";
+			$sql = "INSERT INTO usersessions (usersessionid, userid, expires, registrationcode) " . 
+				"VALUES (:sessionid, :userid, DATE_ADD(NOW(), INTERVAL 7 DAY), :registrationcode)";
 	
 			// Run the SQL select and capture the result code
 			$stmt = $dbh->prepare($sql);
 			$stmt->bindParam(":sessionid", $sessionid);
 			$stmt->bindParam(":userid", $userid);
+			$stmt->bindParam(":registrationcode", $registrationcode);
 			$result = $stmt->execute();
 
 			// If the query did not run successfully, add an error message to the list
@@ -229,23 +434,143 @@ class Application {
 		}
 
 	}
+	
+	public function getUserRegistrations($userid, &$errors) {
+		
+		// Assume an empty list of regs
+		$regs = array();
 
-	// Retrieves an existing session from the database for the specified user
-	public function getSessionUser($sessionid, &$errors, $suppressLog=FALSE) {
+		// Connect to the database
+		$dbh = $this->getConnection();
+	
+		// Construct a SQL statement to perform the select operation
+		$sql = "SELECT registrationcode FROM userregistrations WHERE userid = :userid";
 
-		// Check for a valid session ID
-		if (empty($sessionid)) {
-			$errors[] = "Missing sessionid";
-			//$this->auditlog("session", "missing session id");
+		// Run the SQL select and capture the result code
+		$stmt = $dbh->prepare($sql);
+		$stmt->bindParam(':userid', $userid);
+		$result = $stmt->execute();
+
+		// If the query did not run successfully, add an error message to the list
+		if ($result === FALSE) {
+
+			$errors[] = "An unexpected error occurred getting the regs list.";
+			$this->debug($stmt->errorInfo());
+			$this->auditlog("getUserRegistrations error", $stmt->errorInfo());
+
+		// If the query ran successfully, then get the list of users
+		} else {
+
+			// Get all the rows
+			$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+			$regs = array_column($rows, 'registrationcode');
+			$this->auditlog("getUserRegistrations", "success");
+
+		}
+
+		// Close the connection
+		$dbh = NULL;
+
+		// Return the list of users
+		return $regs;
+	}
+	
+	// Updates a single user in the database and will return the $errors array listing any errors encountered
+	public function updateUserPassword($userid, $password, &$errors) {
+
+		// Assume no user exists for this user id
+		$user = NULL;
+
+		// Validate the user input
+		if (empty($userid)) {
+			$errors[] = "Missing userid";
+		} 
+		$this->validatePassword($password, $errors);
+
+		if(sizeof($errors) == 0) {
+			
+			// Connect to the database
+			$dbh = $this->getConnection();
+		
+			// Hash the user's password
+			$passwordhash = password_hash($password, PASSWORD_DEFAULT);
+
+			// Construct a SQL statement to perform the select operation
+			$sql = "UPDATE users SET passwordhash=:passwordhash " .
+				"WHERE userid = :userid";
+	
+			// Run the SQL select and capture the result code
+			$stmt = $dbh->prepare($sql);
+			$stmt->bindParam(":passwordhash", $passwordhash);
+			$stmt->bindParam(":userid", $userid);
+			$result = $stmt->execute();
+
+			// If the query did not run successfully, add an error message to the list
+			if ($result === FALSE) {
+				$errors[] = "An unexpected error occurred supdating the password.";
+				$this->debug($stmt->errorInfo());
+				$this->auditlog("updateUserPassword error", $stmt->errorInfo());
+			} else {
+				$this->auditlog("updateUserPassword", "success");
+			}
+			
+			// Close the connection
+			$dbh = NULL;
 
 		} else {
+
+			$this->auditlog("updateUserPassword validation error", $errors);					
+
+		}
+
+		// Return TRUE if there are no errors, otherwise return FALSE
+		if (sizeof($errors) == 0){
+			return TRUE; 
+		} else {
+			return FALSE;
+		}
+	}
+	
+	// Removes the specified password reset entry in the database, as well as any expired ones
+	// Does not retrun errors, as the user should not be informed of these problems
+	protected function clearPasswordResetRecords($passwordresetid) {
+
+		$dbh = $this->getConnection();
+	
+		// Construct a SQL statement to perform the insert operation
+		$sql = "DELETE FROM passwordreset WHERE passwordresetid = :passwordresetid OR expires < NOW()";
+
+		// Run the SQL select and capture the result code
+		$stmt = $dbh->prepare($sql);
+		$stmt->bindParam(":passwordresetid", $passwordresetid);
+		$result = $stmt->execute();
+		
+		// Close the connection
+		$dbh = NULL;
+		
+	}
+
+	// Retrieves an existing session from the database for the specified user
+	public function getSessionUser(&$errors, $suppressLog=FALSE) {
+
+		// Get the session id cookie from the browser
+		$sessionid = NULL;
+		$user = NULL;
+
+		// Check for a valid session ID
+		if (isset($_COOKIE['sessionid'])) {
+
+			$sessionid = $_COOKIE['sessionid'];
 			
 			// Connect to the database
 			$dbh = $this->getConnection();
 		
 			// Construct a SQL statement to perform the insert operation
-			$sql = "SELECT usersessions.userid, email, username, registrationcode FROM usersessions left join users on usersessions.userid = users.userid WHERE usersessionid = :sessionid AND expires > now()";
-	
+			$sql = "SELECT usersessionid, usersessions.userid, email, username, usersessions.registrationcode, isadmin " . 
+				"FROM usersessions " . 
+				"LEFT JOIN users on usersessions.userid = users.userid " . 
+				"WHERE usersessionid = :sessionid AND expires > now()";
+
 			// Run the SQL select and capture the result code
 			$stmt = $dbh->prepare($sql);
 			$stmt->bindParam(":sessionid", $sessionid);
@@ -262,18 +587,18 @@ class Application {
 					$this->auditlog("session error", $stmt->errorInfo());
 				}
 				
-				return NULL;
-			
 			} else {
 
-				$row = $stmt->fetch();
-
-				// Return the user details
-				return $row;
+				$user = $stmt->fetch(PDO::FETCH_ASSOC);
 
 			}
 			
+			// Close the connection
+			$dbh = NULL;
+
 		}
+		
+		return $user;
 
 	}
 
@@ -323,7 +648,6 @@ class Application {
 		$this->debug("Login attempted");
 		$this->auditlog("login", "attempt: $username, password length = ".strlen($password));
 
-
 		// Validate the user input
 		if (empty($username)) {
 			$errors[] = "Missing username";
@@ -339,7 +663,7 @@ class Application {
 			$dbh = $this->getConnection();
 		
 			// Construct a SQL statement to perform the insert operation
-			$sql = "SELECT userid, passwordhash FROM users " . 
+			$sql = "SELECT userid, passwordhash, emailvalidated FROM users " . 
 				"WHERE username = :username";
 	
 			// Run the SQL select and capture the result code
@@ -374,6 +698,10 @@ class Application {
 					$errors[] = "Bad username/password combination";
 					$this->auditlog("login", "bad password: password length = ".strlen($password));
 
+				} else if ($row['emailvalidated'] == 0) {
+
+					$errors[] = "Login error. Email not validated. Please check your inbox and/or spam folder.";
+	
 				} else {
 	
 					// Create a new session for this user ID in the database
@@ -446,44 +774,39 @@ class Application {
 
 	// Checks for logged in user and redirects to login if not found with "page=protected" indicator in URL.
 	public function protectPage(&$errors, $isAdmin = FALSE) {
-
-		// Get the session ID from the browser cookies
-		$sessionid = $_COOKIE['sessionid'];
-
-		// If there is no session ID, then the user is not logged in
-		if (empty($sessionid)) {
-			
+		
+		// Get the user ID from the session record
+		$user = $this->getSessionUser($errors);
+		
+		if ($user == NULL) {
 			// Redirect the user to the login page
-			header("Location: login.php?page=protected");
-			$this->auditlog("protect page", "no session");
+			$this->auditlog("protect page", "no user");
+			//header("Location: login.php?page=protected");
+			exit();
+		}
+
+		// Get the user's ID
+		$userid = $user["userid"];
+
+		// If there is no user ID in the session, then the user is not logged in
+		if(empty($userid)) {
+
+			// Redirect the user to the login page
+			$this->auditlog("protect page", "no userid: $sessionid");
+			//header("Location: login.php?page=protected");
 			exit();
 
-		} else {
+		} else if ($isAdmin)  {
 			
-			// Get the user ID from the session record
-			$user = $this->getSessionUser($sessionid, $errors);
-			$userid = $user["userid"];
-	
-			// If there is no user ID in the session, then the user is not logged in
-			if(empty($userid)) {
-				// Redirect the user to the login page
-				$this->auditlog("protect page", "no userid: $sessionid");
-				header("Location: login.php?page=protected");
+			// Get the isAdmin flag from the database
+			$isAdminDB = $this->isAdmin($errors, $userid);
+			
+			if (!$isAdminDB) {
+				
+				// Redirect the user to the home page
+				$this->auditlog("protect page", "not admin");
+				//header("Location: index.php?page=protectedAdmin");
 				exit();
-	
-			} else if ($isAdmin)  {
-				
-				// Get the isAdmin flag from the database
-				$isAdminDB = $this->isAdmin($errors, $userid);
-				
-				if (!$isAdminDB) {
-					
-					// Redirect the user to the home page
-					$this->auditlog("protect page", "not admin");
-					header("Location: index.php?page=protectedAdmin");
-					exit();
-
-				}
 
 			}
 
@@ -500,14 +823,10 @@ class Application {
 		// Connect to the database
 		$dbh = $this->getConnection();
 		
-		// Get the session ID from the browser cookies
-		$sessionid = $_COOKIE['sessionid'];
-		
 		// Get the user id from the session
-		$user = $this->getSessionUser($sessionid, $errors);
+		$user = $this->getSessionUser($errors);
 		$registrationcode = $user["registrationcode"];
 
-	
 		// Construct a SQL statement to perform the select operation
 		$sql = "SELECT thingid, thingname, convert_tz(things.thingcreated,@@session.time_zone,'America/New_York') as thingcreated, thinguserid, thingattachmentid, thingregistrationcode FROM things LEFT JOIN users ON things.thinguserid = users.userid WHERE thingregistrationcode = :registrationcode ORDER BY things.thingcreated ASC";
 
@@ -738,11 +1057,8 @@ class Application {
 	// Adds a new thing to the database
 	public function addThing($name, $attachment, &$errors) {
 
-		// Get the session ID from the browser cookies
-		$sessionid = $_COOKIE['sessionid'];
-
 		// Get the user id from the session
-		$user = $this->getSessionUser($sessionid, $errors);
+		$user = $this->getSessionUser($errors);
 		$userid = $user["userid"];
 		$registrationcode = $user["registrationcode"];
 
@@ -813,11 +1129,8 @@ class Application {
 	// Adds a new comment to the database
 	public function addComment($text, $thingid, $attachment, &$errors) {
 		
-		// Get the session ID from the browser cookies
-		$sessionid = $_COOKIE['sessionid'];
-
 		// Get the user id from the session
-		$user = $this->getSessionUser($sessionid, $errors);
+		$user = $this->getSessionUser($errors);
 		$userid = $user["userid"];
 
 		// Validate the user input
@@ -938,11 +1251,8 @@ class Application {
 		
 		if(sizeof($errors)== 0) {
 			
-			// Get the session ID from the browser cookies
-			$sessionid = $_COOKIE['sessionid'];
-	
 			// Get the user id from the session
-			$user = $this->getSessionUser($sessionid, $errors);
+			$user = $this->getSessionUser($errors);
 			$loggedinuserid = $user["userid"];
 			$isadmin = FALSE;
 	
@@ -1025,11 +1335,8 @@ class Application {
 		
 		if(sizeof($errors) == 0) {
 			
-			// Get the session ID from the browser cookies
-			$sessionid = $_COOKIE['sessionid'];
-	
 			// Get the user id from the session
-			$user = $this->getSessionUser($sessionid, $errors);
+			$user = $this->getSessionUser($errors);
 			$loggedinuserid = $user["userid"];
 			$isadmin = FALSE;
 	
@@ -1113,7 +1420,138 @@ class Application {
 		}
 	}
 
+	// Validates a provided username or email address and sends a password reset email
+	public function passwordReset($usernameOrEmail, &$errors) {
 
+		// Check for a valid username/email
+		if (empty($usernameOrEmail)) {
+			$errors[] = "Missing username/email";
+			$this->auditlog("session", "missing username");
+		}
+
+		// Only proceed if there are no validation errors
+		if (sizeof($errors) == 0) {
+
+			// Connect to the database
+			$dbh = $this->getConnection();
+		
+			// Construct a SQL statement to perform the insert operation
+			$sql = "SELECT email, userid FROM users WHERE username = :username OR email = :email";
+	
+			// Run the SQL select and capture the result code
+			$stmt = $dbh->prepare($sql);
+			$stmt->bindParam(":username", $usernameOrEmail);
+			$stmt->bindParam(":email", $usernameOrEmail);
+			$result = $stmt->execute();
+			
+			// If the query did not run successfully, add an error message to the list
+			if ($result === FALSE) {
+				
+				$this->auditlog("passwordReset error", $stmt->errorInfo());
+				$errors[] = "An unexpected error occurred saving your request to the database.";
+				$this->debug($stmt->errorInfo());
+			
+			} else {
+				
+				if ($stmt->rowCount() == 1) {
+					
+					$row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+					$passwordresetid = bin2hex(random_bytes(16));
+					$userid = $row['userid'];
+					$email = $row['email'];
+
+					// Construct a SQL statement to perform the insert operation
+					$sql = "INSERT INTO passwordreset (passwordresetid, userid, email, expires) " . 
+						"VALUES (:passwordresetid, :userid, :email, DATE_ADD(NOW(), INTERVAL 1 HOUR))";
+
+					// Run the SQL select and capture the result code
+					$stmt = $dbh->prepare($sql);
+					$stmt->bindParam(":passwordresetid", $passwordresetid);
+					$stmt->bindParam(":userid", $userid);
+					$stmt->bindParam(":email", $email);
+					$result = $stmt->execute();
+
+					$this->auditlog("passwordReset", "Sending message to $email");	
+	
+					// Send reset email
+					$pageLink = (isset($_SERVER['HTTPS']) ? "https" : "http") . "://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]";
+					$pageLink = str_replace("reset.php", "password.php", $pageLink);
+					$to      = $email;
+					$subject = 'Password reset';
+					$message = "A password reset request for this account has been submitted at https://russellthackston.me. ".
+						"If you did not make this request, please ignore this message. No other action is necessary. ".
+						"To reset your password, please click the following link: $pageLink?id=$passwordresetid";
+					$headers = 'From: webmaster@russellthackston.me' . "\r\n" .
+					    'Reply-To: webmaster@russellthackston.me' . "\r\n";
+
+					mail($to, $subject, $message, $headers);
+					
+					$this->auditlog("passwordReset", "Message sent to $email");	
+					
+	
+				} else {
+					
+					$this->auditlog("passwordReset", "Bad request for $usernameOrEmail");	
+	
+				}
+
+			}
+
+			// Close the connection
+			$dbh = NULL;
+
+		}
+
+	}
+
+	// Validates a provided username or email address and sends a password reset email
+	public function updatePassword($password, $passwordresetid, &$errors) {
+		
+		// Check for a valid username/email
+		$this->validatePassword($password, $errors);
+		if (empty($passwordresetid)) {
+			$errors[] = "Missing passwordrequestid";
+		}
+
+		// Only proceed if there are no validation errors
+		if (sizeof($errors) == 0) {
+
+			// Connect to the database
+			$dbh = $this->getConnection();
+		
+			// Construct a SQL statement to perform the insert operation
+			$sql = "SELECT userid FROM passwordreset WHERE passwordresetid = :passwordresetid AND expires > NOW()";
+	
+			// Run the SQL select and capture the result code
+			$stmt = $dbh->prepare($sql);
+			$stmt->bindParam(":passwordresetid", $passwordresetid);
+			$result = $stmt->execute();
+
+			// If the query did not run successfully, add an error message to the list
+			if ($result === FALSE) {
+				
+				$errors[] = "An unexpected error occurred updating your password.";
+				$this->auditlog("updatePassword", $stmt->errorInfo());
+				$this->debug($stmt->errorInfo());
+			
+			} else if ($stmt->rowCount() == 1) {
+
+				$row = $stmt->fetch(PDO::FETCH_ASSOC);
+				$userid = $row['userid'];
+				$this->updateUserPassword($userid, $password, $errors);
+				$this->clearPasswordResetRecords($passwordresetid);
+
+			} else {
+				
+				$this->auditlog("updatePassword", "Bad request id: $passwordresetid");
+				
+			}
+
+		}
+
+	}
+	
 	function getFile($name){
 		return file_get_contents($name);
 	}

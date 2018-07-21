@@ -28,8 +28,6 @@ if (isset($_GET["newthing"]) && $_GET["newthing"] == "success") {
 	$message = "Thing successfully created.";
 }
 	
-
-
 // If someone is attempting to create a new thing, the process the request
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 

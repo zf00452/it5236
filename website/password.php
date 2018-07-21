@@ -10,16 +10,25 @@ $app->setup();
 $errors = array();
 $messages = array();
 
+if ($_SERVER['REQUEST_METHOD'] == 'GET') {
+
+	$passwordrequestid = $_GET['id'];
+
+}
+
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
 	// Grab or initialize the input values
-	$usernameOrEmail = $_POST['usernameOrEmail'];
+	$password = $_POST['password'];
+	$passwordrequestid = $_POST['passwordrequestid'];
 
 	// Request a password reset email message
-	$app->passwordReset($usernameOrEmail, $errors);
+	$app->updatePassword($password, $passwordrequestid, $errors);
 	
-	$message = "An email has been sent to the specified account, if it exists. Please check your spam folder.";
-
+	if (sizeof($errors) == 0) {
+		$message = "Password updated";
+	}
+	
 }
 
 ?>
@@ -36,17 +45,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 <body>
+	<script src="js/site.js"></script>
 	<?php include 'include/header.php'; ?>
 	<main id="wrapper">
 		<h2>Reset Password</h2>
 		<?php include('include/messages.php'); ?>
-		<form method="post" action="reset.php">
-			<input type="text" name="usernameOrEmail" id="usernameOrEmail" placeholder="Enter your username or email address" required="required" size="40" />
+		<form method="post" action="password.php">
+			New password:
+			<input type="password" name="password" id="password" required="required" size="40" />
 			<input type="submit" value="Submit" />
+			<input type="hidden" name="passwordrequestid" id="passwordrequestid" value="<?php echo $passwordrequestid; ?>" />
 		</form>
-		<a href="register.php">Need to create an account?</a>
 	</main>
 	<?php include 'include/footer.php'; ?>
-	<script src="js/site.js"></script>
 </body>
 </html>

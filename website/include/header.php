@@ -7,8 +7,7 @@
 	// If we have a session ID cookie, we might have a session
 	if (isset($_COOKIE['sessionid'])) {
 		
-		$sessionid = $_COOKIE['sessionid'];
-		$user = $app->getSessionUser($sessionid, $errors); 
+		$user = $app->getSessionUser($errors); 
 		$loggedinuserid = $user["userid"];
 
 		// Check to see if the user really is logged in and really is an admin

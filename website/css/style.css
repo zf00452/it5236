@@ -4,6 +4,7 @@ body {
 
 div.nav {
 	float: right;
+	padding: 20px;
 }
 
 ul.things {

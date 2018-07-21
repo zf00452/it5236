@@ -14,6 +14,20 @@ $password = "";
 // Declare an empty array of error messages
 $errors = array();
 
+// If someone has clicked their email validation link, then process the request
+if ($_SERVER['REQUEST_METHOD'] == 'GET') {
+
+	if (isset($_GET['id'])) {
+		
+		$success = $app->processEmailValidation($_GET['id'], $errors);
+		if ($success) {
+			$message = "Email address validated. You may login.";
+		}
+
+	}
+
+}
+
 // If someone is attempting to login, process their request
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
@@ -36,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 }
 
 if (isset($_GET['register']) && $_GET['register']== 'success') {
-		$message = "Registration successful. Please login.";
+	$message = "Registration successful. Please check your email. A message has been sent to validate your address.";
 }
 
 ?>
