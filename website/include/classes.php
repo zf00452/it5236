@@ -1,7 +1,15 @@
 <?php
 
-class Application {
+require('credentials.php');
 
+class Application {
+    
+    protected $servername = "";
+    protected $serverdb = "";
+    protected $serverusername = "";
+    protected $serverpassword = "";
+    protected $debugMessages = [];
+    
 	public function setup() {
 
 		// Check to see if the client has a cookie called "debug" with a value of "true"
@@ -15,19 +23,18 @@ class Application {
 	
 	// Writes a message to the debug message array for printing in the footer.
 	public function debug($message) {
-		global $debugMessages;
-		$debugMessages[] = $message;
+		$this->debugMessages[] = $message;
 	}
 	
 	// Creates a database connection
 	protected function getConnection() {
 
 		// Import the database credentials
-		require('credentials.php');	
+		$credentials = new Credentials();	
 
 		// Create the connection
 		try {
-			$dbh = new PDO("mysql:host=$servername;dbname=$serverdb", $serverusername, $serverpassword);
+		    $dbh = new PDO("mysql:host=$credentials->servername;dbname=$credentials->serverdb", $credentials->serverusername, $credentials->serverpassword);
 		} catch (PDOException $e) {
 			print "Error connecting to the database.";
 			die();
