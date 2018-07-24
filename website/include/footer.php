@@ -2,11 +2,12 @@
 <?php
 
 if ($_COOKIE['debug'] == "true") {
-	if (isset($debugMessages)) {
-		foreach ($debugMessages as $msg) {
-			var_dump($msg);
-		}
+	echo "<h3>Debug messages</h3>";
+	echo "<pre>";
+    foreach ($app->debugMessages as $msg) {
+		var_dump($msg);
 	}
+	echo "</pre>";
 }
 	
 ?>
