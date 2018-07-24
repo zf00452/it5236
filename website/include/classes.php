@@ -478,9 +478,6 @@ class Application {
 	// Updates a single user in the database and will return the $errors array listing any errors encountered
 	public function updateUserPassword($userid, $password, &$errors) {
 
-		// Assume no user exists for this user id
-		$user = NULL;
-
 		// Validate the user input
 		if (empty($userid)) {
 			$errors[] = "Missing userid";
