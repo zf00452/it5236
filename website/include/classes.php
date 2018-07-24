@@ -540,7 +540,7 @@ class Application {
 		// Run the SQL select and capture the result code
 		$stmt = $dbh->prepare($sql);
 		$stmt->bindParam(":passwordresetid", $passwordresetid);
-		$result = $stmt->execute();
+		$stmt->execute();
 		
 		// Close the connection
 		$dbh = NULL;
@@ -703,7 +703,7 @@ class Application {
 	
 					// Create a new session for this user ID in the database
 					$userid = $row['userid'];
-					$sessionid = $this->newSession($userid, $errors);
+					$this->newSession($userid, $errors);
 					$this->auditlog("login", "success: $username, $userid");
 					
 				}
@@ -748,7 +748,6 @@ class Application {
 			// If the query did not run successfully, add an error message to the list
 			if ($result === FALSE) {
 
-				$errors[] = "An unexpected error occurred";
 				$this->debug($stmt->errorInfo());
 				$this->auditlog("logout error", $stmt->errorInfo());
 
@@ -778,7 +777,7 @@ class Application {
 		if ($user == NULL) {
 			// Redirect the user to the login page
 			$this->auditlog("protect page", "no user");
-			//header("Location: login.php?page=protected");
+			header("Location: login.php?page=protected");
 			exit();
 		}
 
@@ -789,8 +788,8 @@ class Application {
 		if(empty($userid)) {
 
 			// Redirect the user to the login page
-			$this->auditlog("protect page", "no userid: $sessionid");
-			//header("Location: login.php?page=protected");
+			$this->auditlog("protect page error", $user);
+			header("Location: login.php?page=protected");
 			exit();
 
 		} else if ($isAdmin)  {
@@ -802,7 +801,7 @@ class Application {
 				
 				// Redirect the user to the home page
 				$this->auditlog("protect page", "not admin");
-				//header("Location: index.php?page=protectedAdmin");
+				header("Location: index.php?page=protectedAdmin");
 				exit();
 
 			}
