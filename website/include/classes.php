@@ -71,7 +71,7 @@ class Application {
 		$stmt->bindParam(":message", $message);
 		$stmt->bindParam(":ipaddress", $ipaddress);
 		$stmt->bindParam(":userid", $userid);
-		$result = $stmt->execute();
+		$stmt->execute();
 		$dbh = NULL;
 		
 	}
