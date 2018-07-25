@@ -87,20 +87,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 			<span class="author"><?php echo $thing['thingcreated']; ?></span>
 		</li>
 		<?php } ?>
-		
-		<div class="newthing">
-			<form enctype="multipart/form-data" method="post" action="list.php">
-				<input type="text" name="name" id="name" size="81" placeholder="Enter a thing name" value="<?php echo $name; ?>" />
-				<br/>
-				<label for="attachment">Add an image, PDF, etc.</label>
-				<input id="attachment" name="attachment" type="file">
-				<br/>
-				<input type="submit" name="start" value="Create Thing" />
-				<input type="submit" name="cancel" value="Cancel" />
-			</form>
-		</div>
 
 	</ul>
+	<div class="newthing">
+		<form enctype="multipart/form-data" method="post" action="list.php">
+			<input type="text" name="name" id="name" size="81" placeholder="Enter a thing name" value="<?php echo $name; ?>" />
+			<br/>
+			<label for="attachment">Add an image, PDF, etc.</label>
+			<input id="attachment" name="attachment" type="file">
+			<br/>
+			<input type="submit" name="start" value="Create Thing" />
+			<input type="submit" name="cancel" value="Cancel" />
+		</form>
+	</div>
 	<?php include 'include/footer.php'; ?>
 	<script src="js/site.js"></script>
 </body>
