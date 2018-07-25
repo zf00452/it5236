@@ -1,6 +1,11 @@
 <?php
 
-require('credentials.php');
+if (file_exists(getcwd() . "/include/credentials.php")) {
+    require('credentials.php');
+} else {
+    echo "Application has not been configured. Copy and edit the credentials-sample.php file to credentials.php.";
+    exit();
+}
 
 class Application {
     
