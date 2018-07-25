@@ -8,7 +8,6 @@ $app = new Application();
 $app->setup();
 
 $errors = array();
-$messages = array();
 
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
