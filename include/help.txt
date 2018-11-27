@@ -1,0 +1,9 @@
+Welcome to our website!!
+Here you will be able make and see comments, pictures and things about the best cameras this year!!
+
+If you need help, the home tab will take you back to the homepage of the website in case you get lost. 
+The List tab is where all the content is held.
+At the Profile tab you will be able to update your information.
+And if you want to logout at anytime just hit the Logout tab!!
+
+Enjoy!
